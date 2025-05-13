@@ -17,13 +17,7 @@ import sympy as sp
 import os
 from scipy.interpolate import RegularGridInterpolator
 import sys
-sys.path.insert(0, '../250206')
-import moc_skymap
-import sys
-sys.path.insert(0, '../code')
-from EoS import EOS_properties as ep
-from Prompt_GRB.spectrum import photon_flux
-sys.path.insert(0, '../COMPAS')
+sys.path.insert(0, './COMPAS')
 from spin_class import * 
 
 def abs_to_app(abs_mag,dL):  #dL in parsec!
@@ -479,77 +473,3 @@ def f_weights_fixed2(mbh,mns,thv,spin_bh,z,r0,min_delay_time,data_path,w_type,sp
     
     return C_mc, w
     
-def f_weights_250206(mbh,mns,thv,spin_bh,dL,z,r0,min_delay_time,data_path,w_type,spinM1,spinM2,bhx,nsx,spinx,binsx,binsy,binsz):
-    skymap_filename = 'Bilby.offline1.multiorder.fits'
-    
-    fdata = h5.File(data_path)
-    fDCO = fdata['doubleCompactObjects']
-    
-    M1 = fDCO['M1'][...].squeeze()    # Compact object mass of star 1 
-    M2 = fDCO['M2'][...].squeeze()   # Compact object mass of star 2
-    
-    m1, m2, spin1, spin2 = obtainM1BHandM2NS_spin(M1, M2, spinM1, spinM2)
-    weights = fdata['weights_intrinsic'][w_type][...].squeeze()
-    
-    w = weights
-    H, edges= np.histogramdd((m1,m2,spin1),weights = w,bins=(binsx,binsy,binsz),range=(bhx,nsx,spinx))
-    xedges = edges[0]
-    yedges = edges[1]
-    zedges = edges[2]
-    
-    xcentre = np.zeros(binsx)
-    ycentre = np.zeros(binsy)
-    zcentre = np.zeros(binsz)
-    
-    for j in range(len(xedges)-1):
-        xcentre[j] = xedges[j] + (xedges[j+1] - xedges[j]) / 2.
-    
-    for j in range(len(yedges)-1):
-        ycentre[j] = yedges[j] + (yedges[j+1] - yedges[j]) / 2.
-        
-    for j in range(len(zedges)-1):
-        zcentre[j] = zedges[j] + (zedges[j+1] - zedges[j]) / 2.
-    
-    interp_3 = RegularGridInterpolator((xcentre,ycentre,zcentre),H,bounds_error=False,fill_value=0.) #bounds_error=False,fill_value=0.
-    w_m1m2spin = interp_3((mbh,mns,spin_bh))
-    
-    #Redshift z
-    '''
-    r0BNS = r0
-    tcosmo = np.arange(0.,13.,min_delay_time)*1.e9 #5.e-2
-    zeta_0 = np.linspace(10**(-2.3),10**(1.),1000) #0.6
-    tcosmo_0 = cosmo.lookback_time(zeta_0).value*1.e9
-    zp=np.interp(tcosmo,tcosmo_0,zeta_0)
-    phi = 0.015*((1+zp)**(2.7))/(1+((1+zp)/2.9)**5.6)
-    
-    #rd = np.zeros(len(tcosmo))
-    #for i in range(len(rd)-1):
-        #y = phi*(tcosmo-tcosmo[i])**-1
-        #rd[i] = np.trapz(y[i+1:],tcosmo[i+1:])
-    rd = np.load("rd.npy")
-    rho = np.interp(z,zp,rd)*(r0BNS/rd[0])
-    dvdz=4.*np.pi*cosmo.differential_comoving_volume(z).to("Gpc3 sr-1").value
-    dpdz=rho*dvdz/(1+z)
-    w_z = dpdz*z
-    '''
-    
-    r,pr = moc_skymap.skymap(skymap_filename).distance_posterior()
-
-    dpdL = np.interp(dL,r.to('Mpc').value,pr.value)
-
-    ddL_dz = dL/(1.+z)+(1.+z)*cosmo.hubble_distance.to('Mpc').value*cosmo.inv_efunc(z)
-    dpdz = ddL_dz*dpdL
-    w_z = dpdz*z
-    
-    #Viewing angle
-    w_thv = np.sin(thv)
-    
-    #Total
-    #w = w_m1m2spin * w_thv * w_z  #uniform distribution
-    w = thv* mbh * spin_bh * w_m1m2spin * w_thv * w_z #log distribution in mbh e spinbh
-    
-    #Monte Carlo
-    cz = cumtrapz(dpdz[z.argsort()],np.sort(z),initial=0.)
-    C_mc =cz[-1]/np.sum(w)
-    
-    return C_mc, w
